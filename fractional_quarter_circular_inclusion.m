@@ -30,12 +30,13 @@ function[]=fractional_quarter_circular_inclusion()
     
     %nonlocal configuration
     global alpha
-    alpha=0.8;
+    alpha=1;
     GM_alpha=gamma(2-alpha);
-    left_x=4;
-    right_x=4;
-    down_y=4;
-    upper_y=4;
+    nonlocalrange=0;
+    left_x=nonlocalrange;
+    right_x=nonlocalrange;
+    down_y=nonlocalrange;
+    upper_y=nonlocalrange;
     nonlocal_size(1)=left_x;
     nonlocal_size(2)=right_x;
     nonlocal_size(3)=down_y;
@@ -303,6 +304,7 @@ function[]=fractional_quarter_circular_inclusion()
     out_cross_boun_mark(high_x,1,1)=-1;
     out_cross_boun_mark(high_x,1,2)=1;
 	
+    %first_deri_matrix=zeros(max_x,max_y,2,3,3);
     % in and out fic point configuration
     global in_fic_for_out_ux
     global in_fic_for_out_uy
@@ -1917,7 +1919,8 @@ function[]=fractional_quarter_circular_inclusion()
     %}
     
     %% final compuation configuration
-	symbolic_variable_cell=cell(max_x,max_y,2);
+    %{
+    symbolic_variable_cell=cell(max_x,max_y,2);
 	variable_subscript_cell=cell(max_x,max_y,2);
 	for i=1:1:max_x
 		for j=1:1:max_y
@@ -2003,8 +2006,6 @@ function[]=fractional_quarter_circular_inclusion()
 			end
 		end
 	end
-	%}
-
     abc=zeros(high_x,high_y,2);
     for i=1:1:high_x
         for j=1:1:high_y
@@ -2019,13 +2020,13 @@ function[]=fractional_quarter_circular_inclusion()
             if(i==max_x)
                 coefficient_b(i,j,2)=0;%1000N force added on the boundary
                 coefficient_b(i,j,1)=1;
+                coefficient_b1(i+max_y*(j-1))=1;
             else
                 coefficient_b(i,j,1)=0;
                 coefficient_b(i,j,2)=0;
             end
         end
     end
-
 	%iterations
 	accuracy=5e-16;
     accuracy=1e-7;
@@ -2034,7 +2035,7 @@ function[]=fractional_quarter_circular_inclusion()
 	updated_displacement=zeros(max_x,max_y,2);
 	%method to parse variables in the equilibrium before enter into the
 	%iteration process
-
+    
 	variable_coefficient_cell=cell(max_x,max_y,2);
     for i=1:1:max_x
         for j=1:1:max_y
@@ -2086,7 +2087,98 @@ function[]=fractional_quarter_circular_inclusion()
         iteration_accuracy=T;
     end
     toc;
-
+%}
+    %% New iteration method: Weighted Jacobian iteration
+    var_coeff_matrix=sparse(max_x*max_y*2, max_x*max_y*2);
+    for i=1:1:max_x
+        for j=1:1:max_y
+            for k=1:1:2
+                [var_coeffs, vars]=coeffs(equilibrium(i,j,k));
+                for p=1:1:length(vars)
+                    str_variable=char(vars(p));
+					length_of_string=length(str_variable);
+					%analyse each string
+					number_of_underline=0;
+					place=zeros(2,1);
+                    for q=1:1:length_of_string
+                        if(str_variable(q)=='_')
+							number_of_underline=number_of_underline+1;
+							place(number_of_underline)=q;
+							if(number_of_underline==2)
+								break;
+							else
+								continue;
+							end
+                        end
+                    end
+                    string_1=str_variable(place(1)+1:1:place(2)-1);
+					string_2=str_variable(place(2)+1:1:length_of_string);
+					sub_num_1=str2double(string_1);
+					sub_num_2=str2double(string_2);  
+                    if(str_variable(2)=='x')% 1 stands for Ux; 2 stands for Uy;
+						var_coeff_matrix(i+max_y*(j-1)+max_x*max_y*(k-1),sub_num_1+max_y*(sub_num_2-1))=var_coeffs(p);
+					else
+						var_coeff_matrix(i+max_y*(j-1)+max_x*max_y*(k-1),sub_num_1+max_y*(sub_num_2-1)+max_x*max_y)=var_coeffs(p);
+                    end
+                end
+            end
+        end
+    end
+    coefficient_b1=zeros(max_x*max_y*2,1);
+    for i=1:1:max_x
+        for j=1:1:max_y
+            if(i==max_x)
+                coefficient_b1(i+max_y*(j-1))=1;
+            end
+        end
+    end
+    
+    Rela_residue=1e-4;
+    
+    %w=0.9;
+    D=diag(var_coeff_matrix);
+    L=-tril(var_coeff_matrix)+diag(D);
+    U=diag(D)-L-var_coeff_matrix;
+    %D=D/w;
+    inv_D=zeros(size(D));
+    for i=1:length(D)
+        if(D(i)~=0)
+            inv_D(i)=1/D(i);
+        end
+    end
+    inv_D=diag(inv_D);
+    D=diag(D);
+    U_old=zeros(max_x*max_y*2,1);
+    U_new=zeros(max_x*max_y*2,1);
+    V=D-L;
+    norm_b1=norm(coefficient_b1);
+    tic;
+    while(1)
+        %U_new=inv_D*((D-var_coeff_matrix)*U_old+coefficient_b1);
+        b=U*U_old+coefficient_b1;
+        if(V(1,1)==0)
+            U_new(1)=0;
+        else
+            U_new(1,1)=b(1)/V(1,1);
+        end
+        for i=2:length(coefficient_b1)
+            if(V(i,i)==0)
+                U_new(i)=0;
+            else
+                U_new(i)=(b(i)-V(i,1:i-1)*U_new(1:i-1))/V(i,i);
+            end
+        end
+        residue=norm(coefficient_b1-var_coeff_matrix*U_new)/norm_b1;
+        U_old=U_new;
+        if(residue<Rela_residue)
+            break;
+        end
+        if(norm(U_new)>1e8)
+            break;
+        end
+    end
+    toc;
+    %% post process
     global stress_x
     global stress_y
     global stress_xy
