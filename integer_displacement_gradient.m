@@ -133,4 +133,19 @@ function[results]=integer_displacement_gradient(i,j,point_type,boun_point_type,m
             end
         end
     end
+    %% Rewrite integer displacement gradient without using symbolic variables
+%     switch point_type
+%         case 1
+%             
+%         case -1
+%             
+%         case 3
+%             
+%         case 4
+%             
+%         otherwise
+%             
+%     end
+%     
+%     
 end
